@@ -234,7 +234,7 @@ void Cache::MOESI_Bus_Snoop(ulong addr ,int processor, int busread,int busreadx,
     if (current_line != NULL) {
         ulong current_state = current_line->getFlags();
         if (busread == 1) {
-            if (current_state == Modified) {
+            if (current_state == Modified || current_state == Owner) {
                 current_line->setFlags(Owner);
                 flushes++;
             } 
@@ -244,7 +244,7 @@ void Cache::MOESI_Bus_Snoop(ulong addr ,int processor, int busread,int busreadx,
         }
 
         if (busreadx == 1) {
-            if(current_state == Modified){
+            if(current_state == Modified || current_state == Owner){
                 // mem_trans++;  // 45 
                 flushes++;
             }
@@ -253,12 +253,7 @@ void Cache::MOESI_Bus_Snoop(ulong addr ,int processor, int busread,int busreadx,
             // }
         }
         if (busupgrade == 1) {
-            if (current_state == Shared) {
-                current_line->invalidate();
-                invalidations++;
-            }
-            else if (current_state == Owner) {
-                flushes++;
+            if (current_state == Shared || current_state == Owner) {
                 current_line->invalidate();
                 invalidations++;
             }
