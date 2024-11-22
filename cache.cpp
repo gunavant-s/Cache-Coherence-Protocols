@@ -38,15 +38,14 @@ void Cache::MESI_Processor_Access(ulong addr, uchar rw, int copy, Cache **cache,
     int busrd = 0;
     int busreadx = 0;
     int busupgr = 0;
-
+    bool hit = current_line != NULL ? true : false;
     if (rw == 'r') {
         cache[processor]->reads++;
     } else if (rw == 'w') {
         cache[processor]->writes++;
     }
 
-    if (current_line != NULL) { // Hit
-        
+    if (hit) { // Hit
         ulong current_state = current_line->getFlags();
         Total_execution_time++;
 
@@ -58,10 +57,9 @@ void Cache::MESI_Processor_Access(ulong addr, uchar rw, int copy, Cache **cache,
                 //c_to_c_trans++;
                     current_line->setFlags(Shared);
                 }
-                // else {
-                //     cache[processor]->mem_trans++;
-                //     current_line->setFlags(Exclusive);
-                // }
+                else {
+                    current_line->setFlags(Exclusive);
+                }
             }
             cache[processor]->Readhits++;
         }
@@ -95,11 +93,11 @@ void Cache::MESI_Processor_Access(ulong addr, uchar rw, int copy, Cache **cache,
         else if (rw == 'w') {
             cache[processor]->writeMisses++;
             if (copy == 1) {
-                //c_to_c_trans++;
-            } else {
-            cache[processor]->mem_trans++;  // 76
+                c_to_c_trans++;
+            } 
+            else { // from mem
+                cache[processor]->mem_trans++;  // 76
             }
-            
             busreadx = 1;
             new_line->setFlags(Modified);
         }
@@ -115,7 +113,6 @@ void Cache::MESI_Processor_Access(ulong addr, uchar rw, int copy, Cache **cache,
 
 }
 
-
 void Cache::MESI_Bus_Snoop(ulong addr, int i, int busread, int busreadx, int busupgrade) {
     cacheLine *current_line = findLine(addr);
     if (current_line != NULL) {
@@ -124,7 +121,6 @@ void Cache::MESI_Bus_Snoop(ulong addr, int i, int busread, int busreadx, int bus
             if (current_state == Modified) {
                 current_line->setFlags(Shared);
                 flushes++;
-                // mem_trans++;  // 52
                 writeBacks++;
             } 
             else if (current_state == Exclusive) {
@@ -133,19 +129,16 @@ void Cache::MESI_Bus_Snoop(ulong addr, int i, int busread, int busreadx, int bus
         }
 
         if (busreadx == 1) {
-            // if (current_state == Modified || current_state == Shared || current_state == Exclusive) {
-                if(current_state == Modified){
-                    mem_trans++;  // 45
-                    flushes++;
-                }
-                // current_line->setFlags(INVALID);
-                current_line->invalidate();
-                invalidations++;
+            if(current_state == Modified){
+                mem_trans++;  // 45
+                flushes++;
+            }
+            current_line->invalidate();
+            invalidations++;
             // }
         }
         if (busupgrade == 1) {
             if (current_state == Shared) {
-                // current_line->setFlags(INVALID);
                 current_line->invalidate();
                 invalidations++;
             }
@@ -157,105 +150,115 @@ void Cache::MOESI_Processor_Access(ulong addr,uchar rw, int copy, Cache **cache,
 {
     Total_execution_time++;
     cacheLine *current_line = cache[processor]->findLine(addr);
-    
+    int busrd = 0;
+    int busreadx = 0;
+    int busupgr = 0;
+    bool hit = current_line != NULL ? true : false;
+
     if(rw == 'r'){
         cache[processor]->reads++;
     }
     else if(rw == 'w'){
         cache[processor]->writes++;
     }
-    
-    bool hit = current_line != NULL ? true : false;
-    
+        
     if(hit){ //Hit
         updateLRU(current_line);
         ulong current_state = current_line->getFlags();
         Total_execution_time++;
         
         if(rw == 'r'){ //rd hit
+            cache[processor]->Readhits++;
             if(current_state == INVALID){
-                cache[processor]->readMisses++;
-                if(copy == 0){
-                    current_line->setFlags(Exclusive);
-                }
-                else{
+                if(copy == 1){
                     current_line->setFlags(Shared);
                 }
-                MOESI_Bus_Snoop(addr,processor,1,0,0);
-            }
-            else if(current_state == Modified || current_state == Owner || 
-                    current_state == Shared || current_state == Exclusive){
-                cache[processor]->Readhits++;
-                MOESI_Bus_Snoop(addr,processor,0,0,0);
+                else{
+                    current_line->setFlags(Exclusive);
+                }
             }
         }
         else if (rw == 'w'){ // write hit
-            Total_execution_time = Total_execution_time + 3;
             cache[processor]->Writehits++;
             if(current_state == INVALID){
-                current_line->setFlags(Modified);
-                MOESI_Bus_Snoop(addr,processor,0,1,0);
+                busreadx = 1;
             }
-            else if(current_state == Modified){
-                MOESI_Bus_Snoop(addr,processor,0,0,0);
-            }
-            else if(current_state == Shared || current_state == Owner){
-                current_line->setFlags(Modified);
-                MOESI_Bus_Snoop(addr,processor,0,0,1);
-            }
-            
-            // Invalidate other copies
-            for(int i = 0; i < num_processors; i++){
-                if(i != processor){
-                    cacheLine *line = cache[i]->findLine(addr);
-                    if(line != NULL && line->getFlags() != INVALID){
-                        line->setFlags(INVALID);
-                        cache[i]->invalidations++;
-                        MOESI_Bus_Snoop(addr,i,0,1,0);
-                    }
-                }
-            }
+            else if(current_state == Shared){
+                busupgr = 1;
+            }    
+            current_line->setFlags(Modified);
         }
     }
-    else if (!hit){ //miss
-        cacheLine *new_line = fillLine(addr);
+    else{ //miss
+        cacheLine *new_line =  cache[processor]->fillLine(addr);
         updateLRU(new_line);
         
         if(rw == 'r'){
             cache[processor]->readMisses++;
+            busrd = 1;
             if(copy == 1){
                 c_to_c_trans++;
                 new_line->setFlags(Shared);
             }
             else{
                 new_line->setFlags(Exclusive);
-                // cache[processor]->mem_trans++;
+                cache[processor]->mem_trans++;
             }
             MOESI_Bus_Snoop(addr,processor,1,0,0);
         }
         else{ // write miss
             cache[processor]->writeMisses++;
-            MOESI_Bus_Snoop(addr,processor,0,1,0);
+            if (copy == 1) {
+                c_to_c_trans++;
+            } 
+            else { // from mem
+                cache[processor]->mem_trans++;  // 76
+            }
+            busreadx = 1;
             new_line->setFlags(Modified);
-            // cache[processor]->mem_trans++;
-            
-            for(int i = 0; i < num_processors; i++){
-                if(i != processor){
-                    cacheLine *line = cache[i]->findLine(addr);
-                    if(line != NULL && line->getFlags() != INVALID){
-                        line->setFlags(INVALID);
-                        cache[i]->invalidations++;
-                        MOESI_Bus_Snoop(addr,i,0,1,0);
-                    }
-                }
+        }
+    }
+
+    for (int i = 0; i < num_processors; i++)
+	{
+		if (i != processor)
+		{
+		cache[i]->MOESI_Bus_Snoop(addr,i,busrd,busreadx,busupgr);
+		}
+	}
+}
+
+void Cache::MOESI_Bus_Snoop(ulong addr ,int processor, int busread,int busreadx, int busupgrade ){
+	cacheLine *current_line = findLine(addr);
+    if (current_line != NULL) {
+        ulong current_state = current_line->getFlags();
+        if (busread == 1) {
+            if (current_state == Modified) {
+                current_line->setFlags(Shared);
+                flushes++;
+                writeBacks++;
+            } 
+            else if (current_state == Exclusive) {
+                current_line->setFlags(Shared);
+            }
+        }
+
+        if (busreadx == 1) {
+            if(current_state == Modified){
+                // mem_trans++;  // 45
+                flushes++;
+            }
+            current_line->invalidate();
+            invalidations++;
+            // }
+        }
+        if (busupgrade == 1) {
+            if (current_state == Shared) {
+                current_line->invalidate();
+                invalidations++;
             }
         }
     }
-}
-
-void Cache::MOESI_Bus_Snoop(ulong addr ,int processor, int busread,int busreadx, int busupgrade )
-{
-	
 }
 
 /*look up line*/
