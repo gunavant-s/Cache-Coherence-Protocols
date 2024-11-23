@@ -33,7 +33,7 @@ cache = new cacheLine*[sets];
 // ulong state = cache[input_processor]->findLine(addr)->getFlags();
 
 void Cache::MESI_Processor_Access(ulong addr, uchar rw, int copy, Cache **cache, int processor, int num_processors) {
-    Total_execution_time++;
+    // Total_execution_time++;
     cacheLine *current_line = cache[processor]->findLine(addr);
     int busrd = 0;
     int busreadx = 0;
@@ -41,17 +41,20 @@ void Cache::MESI_Processor_Access(ulong addr, uchar rw, int copy, Cache **cache,
     bool hit = current_line != NULL ? true : false;
     if (rw == 'r') {
         cache[processor]->reads++;
-    } else if (rw == 'w') {
+    } 
+    else if (rw == 'w') {
         cache[processor]->writes++;
     }
 
     if (hit) { // Hit
+        updateLRU(current_line);
         ulong current_state = current_line->getFlags();
-        Total_execution_time++;
+        // Total_execution_time++;
 
         if (rw == 'r'){ //PrWr
             // do nothing?
-            updateLRU(current_line);
+            cache[processor]->Readhits++;
+            Total_execution_time+=read_hit_latency;
             if(current_state == INVALID){
                 if (copy == 1) {
                 //c_to_c_trans++;
@@ -61,10 +64,10 @@ void Cache::MESI_Processor_Access(ulong addr, uchar rw, int copy, Cache **cache,
                     current_line->setFlags(Exclusive);
                 }
             }
-            cache[processor]->Readhits++;
+            
         }
         else if (rw == 'w') { // Write hit
-            updateLRU(current_line);
+            Total_execution_time+=write_hit_latency;
             cache[processor]->Writehits++;
 
             if(current_state == INVALID){
@@ -85,20 +88,24 @@ void Cache::MESI_Processor_Access(ulong addr, uchar rw, int copy, Cache **cache,
             busrd = 1; //anway busrd
             if (copy == 1) {
                 //c_to_c_trans++;
+                Total_execution_time+= flush_transfer;
                 new_line->setFlags(Shared);
             } 
             else {
                 cache[processor]->mem_trans++; //3449
                 new_line->setFlags(Exclusive);
+                Total_execution_time+=memory_latency;
             }
         } 
         else if (rw == 'w') {
             cache[processor]->writeMisses++;
             if (copy == 1) {
                 c_to_c_trans++;
+                Total_execution_time+= flush_transfer;
             } 
             else { // from mem
                 cache[processor]->mem_trans++;  // 76
+                Total_execution_time+= memory_latency;
             }
             busreadx = 1;
             new_line->setFlags(Modified);
